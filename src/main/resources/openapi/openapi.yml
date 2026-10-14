@@ -1,0 +1,1168 @@
+openapi: 3.1.0
+info:
+  title: Walmart Chile Slot Reservation API
+  version: 1.0.0
+  description: Contrato base para la reserva de ventanas de despacho de Walmart Chile.
+servers:
+  - url: http://localhost:8080
+    description: Entorno local
+tags:
+  - name: geo
+    description: Cobertura geográfica de despacho.
+  - name: coverage
+    description: Resolución de cobertura de una dirección y direcciones demo.
+  - name: delivery-zones
+    description: Zonas de despacho configuradas y su geometría (solo lectura).
+  - name: catalog
+    description: Catálogo de ventanas de despacho.
+  - name: reservation
+    description: Reservas de ventanas de despacho.
+paths:
+  /api/v1/delivery-dates:
+    get:
+      tags: [catalog]
+      operationId: listDeliveryDates
+      summary: Listar fechas de despacho disponibles
+      description: Devuelve las fechas consultables y su disponibilidad para una dirección.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CatalogComunaCode'
+        - $ref: '#/components/parameters/CatalogLatitude'
+        - $ref: '#/components/parameters/CatalogLongitude'
+      responses:
+        '200':
+          description: Fechas de despacho de la zona resuelta.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogDeliveryDates'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/CatalogNotAcceptable'
+        '422':
+          description: La dirección no tiene cobertura de despacho.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/CatalogAddressNotCoveredProblem'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/delivery-dates/{date}/slots:
+    get:
+      tags: [catalog]
+      operationId: listDeliverySlots
+      summary: Listar bloques de una fecha de despacho
+      description: Devuelve los bloques visibles de una fecha consultable para una dirección.
+      security: []
+      parameters:
+        - name: date
+          in: path
+          required: true
+          description: Fecha de despacho solicitada.
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/CatalogComunaCode'
+        - $ref: '#/components/parameters/CatalogLatitude'
+        - $ref: '#/components/parameters/CatalogLongitude'
+      responses:
+        '200':
+          description: Bloques de despacho ordenados por inicio.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogDeliverySlots'
+        '400':
+          description: Solicitud inválida; DELIVERY_DATE_OUT_OF_RANGE incluye date, minDate y maxDate.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '406':
+          $ref: '#/components/responses/CatalogNotAcceptable'
+        '422':
+          description: La dirección no tiene cobertura de despacho.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/CatalogAddressNotCoveredProblem'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/regions:
+    get:
+      tags: [geo]
+      operationId: listRegions
+      summary: Listar regiones de norte a sur
+      description: Devuelve las 16 regiones de Chile ordenadas geográficamente de norte a sur.
+      security: []
+      responses:
+        '200':
+          description: Regiones ordenadas de norte a sur.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GeoRegion'
+        '406':
+          $ref: '#/components/responses/GeoNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/regions/{regionCode}/comunas:
+    get:
+      tags: [geo]
+      operationId: listComunasByRegion
+      summary: Listar comunas de una región
+      description: Devuelve las comunas de la región en orden alfabético español, sin que las tildes alteren el orden.
+      security: []
+      parameters:
+        - name: regionCode
+          in: path
+          required: true
+          description: Código CUT de la región (dos dígitos).
+          schema:
+            type: string
+            pattern: '^[0-9]{2}$'
+      responses:
+        '200':
+          description: Comunas de la región.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GeoComuna'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/GeoNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/coverage/resolve:
+    post:
+      tags: [coverage]
+      operationId: resolveCoverage
+      summary: Resolver la cobertura de una dirección
+      description: >-
+        Determina la comuna y la zona de despacho de una dirección. La calle y el número solo se validan;
+        la cobertura se decide por coordenadas (exclusión, inclusión, límite comunal, tolerancia de borde)
+        o por la comuna declarada. Una dirección sin cobertura responde 422 ADDRESS_NOT_COVERED con el motivo.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeoCoverageRequest'
+      responses:
+        '200':
+          description: La dirección tiene cobertura.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoCoverageResolution'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/GeoNotAcceptable'
+        '422':
+          description: La dirección no tiene cobertura de despacho (ADDRESS_NOT_COVERED).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/GeoAddressNotCoveredProblem'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/demo-addresses:
+    get:
+      tags: [coverage]
+      operationId: listDemoAddresses
+      summary: Listar direcciones demo con su resultado esperado
+      description: Devuelve las direcciones de demostración con el resultado de cobertura esperado de cada una.
+      security: []
+      responses:
+        '200':
+          description: Direcciones demo.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GeoDemoAddress'
+        '406':
+          $ref: '#/components/responses/GeoNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/zones:
+    get:
+      tags: [delivery-zones]
+      operationId: listDeliveryZones
+      summary: Listar zonas de despacho
+      description: Devuelve las zonas de despacho ordenadas por código, con filtro opcional por estado.
+      security: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Devuelve solo las zonas en este estado.
+          schema:
+            $ref: '#/components/schemas/GeoZoneStatus'
+      responses:
+        '200':
+          description: Zonas de despacho ordenadas por código.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GeoDeliveryZone'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/GeoNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/zones/{zoneId}:
+    get:
+      tags: [delivery-zones]
+      operationId: getDeliveryZone
+      summary: Obtener el detalle de una zona de despacho
+      description: >-
+        Devuelve la zona con la cantidad de áreas de inclusión y exclusión y, si se solicita,
+        su geometría como MultiPolygon GeoJSON en WGS 84.
+      security: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          description: Identificador de la zona de despacho.
+          schema:
+            type: string
+            format: uuid
+        - name: includeGeometry
+          in: query
+          required: false
+          description: Incluye la geometría de la zona cuando existe.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Detalle de la zona.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoDeliveryZoneDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/GeoNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/slot-holds:
+    post:
+      tags: [reservation]
+      operationId: createSlotHold
+      summary: Retener una ventana de despacho
+      description: >-
+        Retiene provisoriamente una ventana para una orden del cliente indicado en X-Customer-Id.
+        Es idempotente por Idempotency-Key. Si la ventana está agotada responde 409 SLOT_FULL con alternativas.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReservationCustomerIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationCreateHoldRequest'
+      responses:
+        '201':
+          description: Retención creada (o repetición idempotente de una creación previa).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+            Location:
+              description: Ubicación de la retención creada.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationSlotHold'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/ReservationNotAcceptable'
+        '409':
+          description: >-
+            Ventana agotada (SLOT_FULL, con alternativas), orden ya retenida o reservada, clave de idempotencia
+            reutilizada o petición con la misma clave en curso (con Retry-After).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+            Retry-After:
+              $ref: '#/components/headers/ReservationRetryAfter'
+          content:
+            application/problem+json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ReservationSlotFullProblem'
+                  - $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/slot-holds/{holdId}:
+    get:
+      tags: [reservation]
+      operationId: getSlotHold
+      summary: Consultar una retención de ventana
+      description: Devuelve la retención del cliente con su estado efectivo (una activa vencida se informa EXPIRED).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReservationCustomerIdHeader'
+        - $ref: '#/components/parameters/ReservationHoldId'
+      responses:
+        '200':
+          description: Retención del cliente.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationSlotHold'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/ReservationNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [reservation]
+      operationId: releaseSlotHold
+      summary: Liberar una retención de ventana
+      description: >-
+        Devuelve el cupo si la retención estaba activa. Es idempotente: liberar una retención ya liberada o
+        vencida responde 204 sin cambios. Una retención confirmada responde 409 HOLD_NOT_ACTIVE.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReservationCustomerIdHeader'
+        - $ref: '#/components/parameters/ReservationHoldId'
+      responses:
+        '204':
+          description: Retención liberada (o ya no vigente).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/slot-holds/{holdId}/confirm:
+    post:
+      tags: [reservation]
+      operationId: confirmSlotHold
+      summary: Confirmar una retención como reserva
+      description: >-
+        Convierte la retención activa en una reserva y mueve el cupo de retenido a reservado. Es idempotente
+        por Idempotency-Key.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReservationCustomerIdHeader'
+        - $ref: '#/components/parameters/ReservationHoldId'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '201':
+          description: Reserva creada (o repetición idempotente de una confirmación previa).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+            Location:
+              description: Ubicación de la reserva creada.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationBooking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/ReservationNotAcceptable'
+        '409':
+          description: Retención no activa, clave de idempotencia reutilizada o petición con la misma clave en curso (con Retry-After).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+            Retry-After:
+              $ref: '#/components/headers/ReservationRetryAfter'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/reservations/{reservationId}:
+    get:
+      tags: [reservation]
+      operationId: getReservation
+      summary: Consultar una reserva
+      description: Devuelve la reserva del cliente.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReservationCustomerIdHeader'
+        - $ref: '#/components/parameters/ReservationIdPath'
+      responses:
+        '200':
+          description: Reserva del cliente.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationBooking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/ReservationNotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/reservations/{reservationId}/cancel:
+    post:
+      tags: [reservation]
+      operationId: cancelReservation
+      summary: Cancelar una reserva
+      description: >-
+        Devuelve el cupo reservado. Es idempotente: cancelar una reserva ya cancelada devuelve la misma vista.
+        Tras el cierre de la ventana responde 422 RESERVATION_CANCELLATION_CLOSED.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ReservationCustomerIdHeader'
+        - $ref: '#/components/parameters/ReservationIdPath'
+      responses:
+        '200':
+          description: Reserva cancelada.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/X-Correlation-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationBooking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/ReservationNotAcceptable'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  schemas:
+    # Las specs downstream agregan schemas propios sin modificar estos componentes comunes.
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        correlationId:
+          type: string
+          pattern: '^[A-Za-z0-9._-]{1,64}$'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+      additionalProperties: true
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+        rejectedValue: {}
+    GeoRegion:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          pattern: '^[0-9]{2}$'
+        name:
+          type: string
+    GeoComuna:
+      type: object
+      required: [code, name, provinceCode, provinceName, hasBoundary]
+      properties:
+        code:
+          type: string
+          pattern: '^[0-9]{5}$'
+        name:
+          type: string
+        provinceCode:
+          type: string
+          pattern: '^[0-9]{3}$'
+        provinceName:
+          type: string
+        hasBoundary:
+          type: boolean
+          description: Indica si la comuna cuenta con límite geográfico cargado.
+    GeoComunaRef:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          pattern: '^[0-9]{5}$'
+        name:
+          type: string
+    GeoZoneRef:
+      type: object
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+    GeoResolutionMethod:
+      type: string
+      description: Regla que determinó la comuna de la dirección.
+      enum: [ZONE_AREA, COMUNA_BOUNDARY, NEAREST_COMUNA, COMUNA_CODE]
+    GeoNotCoveredReason:
+      type: string
+      description: Motivo estable por el cual una dirección no tiene cobertura.
+      enum: [EXCLUDED_AREA, OUTSIDE_SERVICE_AREA, COMUNA_NOT_SERVED, ZONE_INACTIVE]
+    GeoCoverageRequest:
+      type: object
+      additionalProperties: false
+      required: [street, number, comunaCode]
+      properties:
+        street:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: '^.*\S.*$'
+          description: Calle; solo se valida, no influye en la cobertura.
+        number:
+          type: string
+          minLength: 1
+          maxLength: 20
+          pattern: '^.*\S.*$'
+          description: Número; solo se valida, no influye en la cobertura.
+        comunaCode:
+          type: string
+          pattern: '^[0-9]{5}$'
+          description: Código CUT de la comuna declarada.
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+    GeoCoverageResolution:
+      type: object
+      required: [comuna, zone, method, comunaDiffersFromDeclared]
+      properties:
+        comuna:
+          $ref: '#/components/schemas/GeoComunaRef'
+        zone:
+          $ref: '#/components/schemas/GeoZoneRef'
+        method:
+          $ref: '#/components/schemas/GeoResolutionMethod'
+        comunaDiffersFromDeclared:
+          type: boolean
+          description: La comuna resuelta por coordenadas difiere de la declarada.
+    GeoAddressNotCoveredProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              $ref: '#/components/schemas/GeoNotCoveredReason'
+            comunaCode:
+              type: string
+              pattern: '^[0-9]{5}$'
+              description: Comuna resuelta, cuando pudo determinarse.
+    GeoExpectedCoverage:
+      type: object
+      required: [covered]
+      properties:
+        covered:
+          type: boolean
+        zoneCode:
+          type: string
+        method:
+          $ref: '#/components/schemas/GeoResolutionMethod'
+        reason:
+          $ref: '#/components/schemas/GeoNotCoveredReason'
+    GeoDemoAddress:
+      type: object
+      required: [id, label, street, number, comuna, expected]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        street:
+          type: string
+        number:
+          type: string
+        comuna:
+          $ref: '#/components/schemas/GeoComunaRef'
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        expected:
+          $ref: '#/components/schemas/GeoExpectedCoverage'
+    GeoZoneStatus:
+      type: string
+      description: Estado operativo de la zona.
+      enum: [ACTIVE, INACTIVE]
+    GeoDispatchNode:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+    GeoDeliveryZone:
+      type: object
+      required: [id, code, name, status, dispatchNode, comunas]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/GeoZoneStatus'
+        dispatchNode:
+          $ref: '#/components/schemas/GeoDispatchNode'
+        comunas:
+          type: array
+          description: Comunas completas cubiertas por la zona.
+          items:
+            $ref: '#/components/schemas/GeoComunaRef'
+    GeoMultiPolygon:
+      type: object
+      description: Geometría GeoJSON de tipo MultiPolygon en WGS 84 (longitud, latitud).
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          enum: [MultiPolygon]
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: array
+                items:
+                  type: number
+                  format: double
+    GeoDeliveryZoneDetail:
+      allOf:
+        - $ref: '#/components/schemas/GeoDeliveryZone'
+        - type: object
+          required: [inclusionAreaCount, exclusionAreaCount]
+          properties:
+            inclusionAreaCount:
+              type: integer
+              minimum: 0
+            exclusionAreaCount:
+              type: integer
+              minimum: 0
+            geometry:
+              $ref: '#/components/schemas/GeoMultiPolygon'
+    CatalogZoneRef:
+      type: object
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+    CatalogComunaRef:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          pattern: '^[0-9]{5}$'
+        name:
+          type: string
+    CatalogDateStatus:
+      type: string
+      enum: [AVAILABLE, SOLD_OUT, NO_SERVICE]
+    CatalogSlotStatus:
+      type: string
+      enum: [AVAILABLE, SOLD_OUT, CUTOFF_PASSED]
+    CatalogDeliveryDate:
+      type: object
+      required: [date, label, status]
+      properties:
+        date:
+          type: string
+          format: date
+        label:
+          type: string
+        status:
+          $ref: '#/components/schemas/CatalogDateStatus'
+    CatalogDeliveryDates:
+      type: object
+      required: [zone, comuna, timeZone, dates]
+      properties:
+        zone:
+          $ref: '#/components/schemas/CatalogZoneRef'
+        comuna:
+          $ref: '#/components/schemas/CatalogComunaRef'
+        timeZone:
+          type: string
+          enum: [America/Santiago]
+        dates:
+          type: array
+          minItems: 1
+          maxItems: 14
+          items:
+            $ref: '#/components/schemas/CatalogDeliveryDate'
+    CatalogDeliverySlot:
+      type: object
+      required: [slotId, start, end, price, remainingCapacity, status]
+      properties:
+        slotId:
+          type: string
+          format: uuid
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+        remainingCapacity:
+          type: integer
+          format: int32
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/CatalogSlotStatus'
+    CatalogDeliverySlots:
+      type: object
+      required: [zone, comuna, date, label, status, timeZone, slots]
+      properties:
+        zone:
+          $ref: '#/components/schemas/CatalogZoneRef'
+        comuna:
+          $ref: '#/components/schemas/CatalogComunaRef'
+        date:
+          type: string
+          format: date
+        label:
+          type: string
+        status:
+          $ref: '#/components/schemas/CatalogDateStatus'
+        timeZone:
+          type: string
+          enum: [America/Santiago]
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogDeliverySlot'
+    CatalogNotCoveredReason:
+      type: string
+      enum: [EXCLUDED_AREA, OUTSIDE_SERVICE_AREA, COMUNA_NOT_SERVED, ZONE_INACTIVE]
+    CatalogAddressNotCoveredProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              $ref: '#/components/schemas/CatalogNotCoveredReason'
+            comunaCode:
+              type: string
+              pattern: '^[0-9]{5}$'
+    ReservationCreateHoldRequest:
+      type: object
+      description: Un customerId en el cuerpo se ignora; el cliente viaja solo en X-Customer-Id.
+      required: [slotId, orderId]
+      properties:
+        slotId:
+          type: string
+          format: uuid
+          description: Ventana a retener (slotId del catálogo).
+        orderId:
+          type: string
+          pattern: '^[A-Za-z0-9._-]{1,64}$'
+          description: Identificador opaco de la orden del cliente.
+    ReservationSlotSnapshot:
+      type: object
+      description: Copia inmutable de la ventana al momento de retener.
+      required: [slotId, zoneId, deliveryDate, start, end, price, timeZone]
+      properties:
+        slotId:
+          type: string
+          format: uuid
+        zoneId:
+          type: string
+          format: uuid
+        deliveryDate:
+          type: string
+          format: date
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Precio en CLP, entero sin decimales.
+        timeZone:
+          type: string
+          enum: [America/Santiago]
+    ReservationHoldStatus:
+      type: string
+      enum: [ACTIVE, CONFIRMED, RELEASED, EXPIRED]
+    ReservationSlotHold:
+      type: object
+      required: [holdId, orderId, status, createdAt, expiresAt, slot]
+      properties:
+        holdId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReservationHoldStatus'
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        slot:
+          $ref: '#/components/schemas/ReservationSlotSnapshot'
+        reservationId:
+          type: string
+          format: uuid
+          description: Presente solo cuando la retención fue confirmada.
+    ReservationBookingStatus:
+      type: string
+      enum: [CONFIRMED, CANCELLED]
+    ReservationBooking:
+      type: object
+      required: [reservationId, holdId, orderId, status, confirmedAt, slot]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        holdId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReservationBookingStatus'
+        confirmedAt:
+          type: string
+          format: date-time
+        cancelledAt:
+          type: string
+          format: date-time
+          description: Presente solo cuando la reserva fue cancelada.
+        slot:
+          $ref: '#/components/schemas/ReservationSlotSnapshot'
+    ReservationAlternativeSlot:
+      type: object
+      required: [slotId, deliveryDate, start, end, price, remainingCapacity]
+      properties:
+        slotId:
+          type: string
+          format: uuid
+        deliveryDate:
+          type: string
+          format: date
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+        remainingCapacity:
+          type: integer
+          format: int32
+          minimum: 0
+    ReservationSlotFullProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [slotId, alternatives]
+          properties:
+            slotId:
+              type: string
+              format: uuid
+            alternatives:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReservationAlternativeSlot'
+  headers:
+    X-Correlation-Id:
+      description: Identificador de correlación de la petición.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{1,64}$'
+    ReservationRetryAfter:
+      description: Segundos sugeridos antes de reintentar una petición idempotente en curso.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+  parameters:
+    CatalogComunaCode:
+      name: comunaCode
+      in: query
+      required: true
+      description: Código CUT de la comuna declarada.
+      schema:
+        type: string
+        pattern: '^[0-9]{5}$'
+    CatalogLatitude:
+      name: latitude
+      in: query
+      required: false
+      description: Latitud WGS84 opcional; requiere longitude.
+      schema:
+        type: number
+        format: double
+        minimum: -90
+        maximum: 90
+    CatalogLongitude:
+      name: longitude
+      in: query
+      required: false
+      description: Longitud WGS84 opcional; requiere latitude.
+      schema:
+        type: number
+        format: double
+        minimum: -180
+        maximum: 180
+    ReservationCustomerIdHeader:
+      name: X-Customer-Id
+      in: header
+      required: true
+      description: Identidad simulada del cliente (en producción se obtiene del JWT).
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{1,64}$'
+    ReservationHoldId:
+      name: holdId
+      in: path
+      required: true
+      description: Identificador de la retención.
+      schema:
+        type: string
+        format: uuid
+    ReservationIdPath:
+      name: reservationId
+      in: path
+      required: true
+      description: Identificador de la reserva.
+      schema:
+        type: string
+        format: uuid
+    CorrelationIdHeader:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{1,64}$'
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  responses:
+    BadRequest:
+      description: Solicitud inválida.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Recurso no encontrado.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Conflicto de estado.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnprocessableEntity:
+      description: Regla de negocio no procesable.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Error interno.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    GeoNotAcceptable:
+      description: El formato solicitado en Accept no es soportado.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    CatalogNotAcceptable:
+      description: El formato solicitado en Accept no es soportado.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ReservationNotAcceptable:
+      description: El formato solicitado en Accept no es soportado.
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/X-Correlation-Id'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

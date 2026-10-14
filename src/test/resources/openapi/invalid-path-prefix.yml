@@ -1,0 +1,22 @@
+openapi: 3.1.0
+info:
+  title: Fixture
+  version: 1.0.0
+paths:
+  /fixture:
+    get:
+      summary: Fixture inválido
+      operationId: invalidPathPrefix
+      tags: [geo]
+      responses:
+        '400':
+          description: Correcto salvo por el prefijo de ruta
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required: [type, title]
+                properties:
+                  type: { type: string }
+                  title: { type: string }
+components: {}

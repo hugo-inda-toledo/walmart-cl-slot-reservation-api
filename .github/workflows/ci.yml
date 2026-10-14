@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: corretto
+          java-version: '21'
+          cache: maven
+      - run: ./mvnw -B verify
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: surefire-reports
+          path: target/surefire-reports
+          if-no-files-found: warn
+      - name: Upload Failsafe reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: failsafe-reports
+          path: target/failsafe-reports
+          if-no-files-found: warn
+
+  contract-lint:
+    name: Lint API contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: false
+      - run: npx --yes @redocly/cli@2.62.1 lint src/main/resources/openapi/openapi.yml --format=github-actions
+
+  dependency-scan:
+    name: Scan dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: corretto
+          java-version: '21'
+          cache: maven
+      - name: Resolve Maven dependencies into an SBOM
+        run: ./mvnw -B -DskipTests org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+      - name: Scan with OSV-Scanner v2
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/google/osv-scanner@sha256:f7ba4be68bac8086b1f88fd598fdca1ca67239c79ad2c2b5c78e03a82e5187c4 \
+            scan source --config /workspace/osv-scanner.toml --format json --sbom /workspace/target/bom.json --output /workspace/osv-results.json 2> osv-scanner.stderr
+          status=$?
+          set -e
+          if grep -Eqi 'failed to (get response|resolve transitive|fetch Maven)|API query failed' osv-scanner.stderr; then
+            echo "OSV-Scanner could not resolve dependency metadata." >&2
+            cat osv-scanner.stderr >&2
+            exit 127
+          fi
+          if [[ ! -s osv-results.json ]] || ! jq -e '.results | type == "array"' osv-results.json >/dev/null; then
+            echo "OSV-Scanner did not produce a valid report; scan resolution failed." >&2
+            exit "${status:-127}"
+          fi
+          if [[ "$status" -ne 0 && "$status" -ne 1 ]]; then
+            echo "OSV-Scanner failed with exit code $status." >&2
+            exit "$status"
+          fi
+          ./scripts/check-osv-severity.sh osv-results.json
+      - name: Upload OSV report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: osv-results
+          path: |
+            osv-results.json
+            osv-scanner.stderr
+            target/bom.json
+          if-no-files-found: warn
+
+  workflow-lint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: false
+      - name: Lint GitHub Actions workflows
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 \
+            -color .github/workflows/*.yml
+
+  compose-smoke:
+    name: Compose smoke and load test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: false
+      - name: Start local stack
+        run: docker compose up --build -d --wait
+      - name: Run local smoke checks
+        run: ./scripts/smoke-local.sh
+      - name: Run flash-sale load test
+        run: VUS=300 ./load/run-flash-sale.sh
+      - name: Collect Compose logs
+        if: failure()
+        run: docker compose logs --no-color > compose.log
+      - name: Upload Compose diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: compose-smoke-diagnostics
+          path: |
+            load/results/
+            compose.log
+          if-no-files-found: warn
+      - name: Remove local stack and volumes
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,10 @@
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+  # Los tests ejecutan la liberación automática y la purga explícitamente.
+  reservation:
+    sweeper:
+      enabled: false
+    idempotency:
+      purge-enabled: false

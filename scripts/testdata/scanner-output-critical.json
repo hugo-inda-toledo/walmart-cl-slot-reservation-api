@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "packages": [
+        {
+          "package": {"name": "org.example:unsafe-library", "version": "1.2.3"},
+          "groups": [
+            {"ids": ["GHSA-test-critical"], "max_severity": "9.8"}
+          ]
+        }
+      ]
+    }
+  ]
+}

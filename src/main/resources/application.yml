@@ -1,0 +1,109 @@
+spring:
+  application:
+    name: slot-reservation-api
+  profiles:
+    default: local
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    out-of-order: false
+  data:
+    redis:
+      timeout: 500ms
+      connect-timeout: 500ms
+  mvc:
+    problemdetails:
+      enabled: true
+
+logging:
+  structured:
+    format:
+      console: ecs
+
+server:
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-components: always
+      show-details: always
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  api-docs:
+    # springdoc 3.1 disables Swagger UI when api-docs is false. Keep its endpoint internal,
+    # scan no application packages, and make the UI consume only the versioned YAML below.
+    enabled: true
+    path: /internal/openapi
+  packages-to-scan: cl.walmart.slot.reservation.none
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /openapi/openapi.yml
+
+app:
+  cors:
+    exposed-headers:
+      - X-Correlation-Id
+      - Retry-After
+      - Location
+  problem:
+    type-base-uri: "urn:slot-reservation:problem:"
+  correlation-id:
+    max-length: 64
+  geo:
+    border-tolerance-meters: 300
+  catalog:
+    display-days: 7
+    generation:
+      horizon-days: 14
+      cron: "0 15 0 * * *"
+      run-on-startup: true
+    cutoff-lead-time: PT2H
+    availability-cache:
+      enabled: true
+      ttl: PT30S
+      failure-backoff: PT5S
+    demo:
+      enabled: false
+      zone-id: 5f1c0e2a-0000-4000-8000-000000000401
+      sold-out-day-offset: 2
+  reservation:
+    hold-ttl: PT10M
+    alternatives:
+      max: 3
+    sweeper:
+      enabled: true
+      fixed-delay: PT15S
+      batch-size: 500
+      max-batches-per-run: 20
+    idempotency:
+      retention: PT24H
+      wait-timeout: PT5S
+      retry-after-seconds: 1
+      purge-enabled: true
+      purge-cron: "0 30 * * * *"
+      purge-batch-size: 1000

@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: imresamu/postgis:17-3.5-alpine
+    environment:
+      POSTGRES_DB: slot_reservation
+      POSTGRES_USER: slot_reservation
+      POSTGRES_PASSWORD: slot_reservation
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slot_reservation -d slot_reservation"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:9.0.6-alpine
+    ports:
+      - "${VALKEY_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    image: walmart-cl-slot-reservation-api:local
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/slot_reservation
+      SPRING_DATA_REDIS_HOST: valkey
+      APP_CATALOG_DEMO_ENABLED: "true"
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  k6:
+    image: grafana/k6:1.8.2
+    profiles: [load]
+    environment:
+      BASE_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./load:/scripts:ro
+      - ./load/results:/results
+
+volumes:
+  pgdata:

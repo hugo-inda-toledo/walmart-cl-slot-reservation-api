@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "packages": [
+        {
+          "package": {"name": "org.example:low-library", "version": "1.0.0"},
+          "vulnerabilities": [
+            {"id": "GHSA-test-low", "database_specific": {"severity": "MODERATE"}}
+          ]
+        }
+      ]
+    }
+  ]
+}

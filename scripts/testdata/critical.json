@@ -1,0 +1,18 @@
+{
+  "results": [
+    {
+      "packages": [
+        {
+          "package": {"name": "org.example:unsafe-library", "version": "1.2.3"},
+          "vulnerabilities": [
+            {
+              "id": "GHSA-test-critical",
+              "database_specific": {"severity": "CRITICAL"},
+              "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

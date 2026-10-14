@@ -1,0 +1,11 @@
+extends:
+  - recommended
+plugins:
+  - ./scripts/openapi-rules.js
+rules:
+  operation-operationId-unique: error
+  operation-tag-defined: error
+  no-unused-components: off
+  operation-4xx-response: error
+  operation-4xx-problem-details-rfc7807: error
+  slot-reservation-rules/api-v1-path-prefix: error

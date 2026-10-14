@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/slot_reservation
+    username: slot_reservation
+    password: slot_reservation
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  flyway:
+    out-of-order: true
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+  catalog:
+    demo:
+      enabled: true
